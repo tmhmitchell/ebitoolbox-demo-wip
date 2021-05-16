@@ -115,6 +115,7 @@ func NewGame() *Game {
 		terrain:    statics,
 		rayOrigin:  vector.NewVec2(50, 100),
 		ray2Origin: vector.NewVec2(900, 800),
+		movingRect: Rect{50, 50, 75, 75},
 	}
 }
 
@@ -210,6 +211,8 @@ func (g *Game) Update() error {
 				continue
 			}
 
+			g.collisionData[r] = data
+
 			collisions = append(
 				collisions,
 				extendedCollisionData{r, data},
@@ -234,26 +237,6 @@ func (g *Game) Update() error {
 				),
 			)
 		}
-
-		// collisionTimes := make
-
-		// g.isColliding, g.collisionDetails = MovingRectVsRect(g.movingRect, mv, g.target)
-
-		// if g.isColliding {
-		// 	log.Println(g.collisionDetails)
-
-		// }
-
-		//
-
-		// // mv.SetX(mv.X() * g.collisionDetails.Normal.X() )
-
-		// cmv := mv.Add(
-		// 	vector.NewVec2(
-		// 		math.Abs(mv.X())*g.collisionDetails.Normal.X()*overlap,
-		// 		math.Abs(mv.Y())*g.collisionDetails.Normal.Y()*overlap,
-		// 	),
-		// )
 
 		g.movingRect.x += mv.X()
 		g.movingRect.y += mv.Y()
@@ -315,43 +298,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	// // If we're in box mode, visualise the expanded rectangle we use for collision
-	// if g.mode == GameModeBox {
-	// 	ebitenutil.DrawRect(
-	// 		screen,
-	// 		g.target.X()-(g.movingRect.Width()/2),
-	// 		g.target.Y()-(g.movingRect.Height()/2),
-	// 		g.target.Width()+g.movingRect.Width(),
-	// 		g.target.Height()+g.movingRect.Height(),
-	// 		colorPurple,
-	// 	)
-	// }
-
-	// 	if g.isColliding {
-	// 		ebitenutil.DrawLine(
-	// 			screen,
-	// 			g.collisionDetails.Contact.X(),
-	// 			g.collisionDetails.Contact.Y(),
-	// 			g.collisionDetails.Contact.X()+g.collisionDetails.Normal.X()*50,
-	// 			g.collisionDetails.Contact.Y()+g.collisionDetails.Normal.Y()*50,
-	// 			colorYellow,
-	// 		)
-
-	// 		ebitenutil.DebugPrintAt(
-	// 			screen,
-	// 			fmt.Sprintf("%f", g.collisionDetails.Time),
-	// 			int(g.collisionDetails.Contact.X()),
-	// 			int(g.collisionDetails.Contact.Y()),
-	// 		)
-	// 	}
-	// }
-
 	// If we're in rect mode, visualise the user-controlled moving rect
 	if g.mode == GameModeRect {
 		ebitenutil.DrawRect(
 			screen,
-			g.movingRect.x, g.movingRect.y,
-			g.movingRect.w, g.movingRect.h,
+			g.movingRect.X(), g.movingRect.Y(),
+			g.movingRect.Width(), g.movingRect.Height(),
 			colorGreen,
 		)
 	}
