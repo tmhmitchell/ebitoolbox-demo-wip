@@ -14,7 +14,7 @@ type AABB interface {
 	Height() float64
 }
 
-type RayRectCollision struct {
+type CollisionData struct {
 	// The point at which the ray contacted the rectangle
 	Contact vector.Vec2
 
@@ -61,12 +61,12 @@ func determineNearAndFar(origin, direction, targetOrigin, targetSize float64) (f
 // value returned will be true, and the second will be details of the collision.
 // If not, false and an empty struct will be returned. If there was no collision,
 // you should not consult the details, as they will not be meaningful.
-func RayVsRect(origin, direction vector.Vec2, target AABB) (bool, RayRectCollision) {
+func RayVsRect(origin, direction vector.Vec2, target AABB) (bool, CollisionData) {
 	xn, xf := determineNearAndFar(origin.X(), direction.X(), target.X(), target.Width())
 	yn, yf := determineNearAndFar(origin.Y(), direction.Y(), target.Y(), target.Height())
 
 	if xn > yf || yn > xf {
-		return false, RayRectCollision{}
+		return false, CollisionData{}
 	}
 
 	n := math.Max(xn, yn)
@@ -77,7 +77,7 @@ func RayVsRect(origin, direction vector.Vec2, target AABB) (bool, RayRectCollisi
 	// If the furthest collision is behind us, we're not colliding
 	// Letting either of these pass would cause false positives
 	if n > 1 || f < 0 {
-		return false, RayRectCollision{}
+		return false, CollisionData{}
 	}
 
 	// Determine the normal vector of the collision
@@ -104,7 +104,7 @@ func RayVsRect(origin, direction vector.Vec2, target AABB) (bool, RayRectCollisi
 
 	}
 
-	return true, RayRectCollision{
+	return true, CollisionData{
 		Contact: origin.Add(vector.NewVec2(direction.X()*n, direction.Y()*n)),
 		Normal:  normal,
 		Time:    n,
@@ -112,11 +112,11 @@ func RayVsRect(origin, direction vector.Vec2, target AABB) (bool, RayRectCollisi
 }
 
 // MovingRectVsRect determines collision details for
-func MovingRectVsRect(moving AABB, movement vector.Vec2, static AABB) (bool, RayRectCollision) {
+func MovingRectVsRect(moving AABB, movement vector.Vec2, static AABB) (bool, CollisionData) {
 	// We presume these two AABBs aren't __already__ colliding.
 	// As a result, if there's no movement, there can be no collision.
 	if movement.X() == 0 && movement.Y() == 0 {
-		return false, RayRectCollision{}
+		return false, CollisionData{}
 	}
 
 	expanded := Rect{
@@ -136,5 +136,5 @@ func MovingRectVsRect(moving AABB, movement vector.Vec2, static AABB) (bool, Ray
 		return true, details
 	}
 
-	return false, RayRectCollision{}
+	return false, CollisionData{}
 }

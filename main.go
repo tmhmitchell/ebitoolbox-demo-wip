@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"sort"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -34,11 +35,12 @@ const (
 	GameModePoint GameMode = "point"
 	GameModeRay   GameMode = "ray"
 	GameModeRay2  GameMode = "ray2"
-	GameModeBox   GameMode = "box"
+	GameModeRect  GameMode = "rect"
 )
 
 type Rect struct {
 	x, y, w, h float64
+	// inCollision bool
 }
 
 func (r Rect) X() float64      { return r.x }
@@ -46,31 +48,83 @@ func (r Rect) Y() float64      { return r.y }
 func (r Rect) Width() float64  { return r.w }
 func (r Rect) Height() float64 { return r.h }
 
+// func (r Rect) InCollision() bool      { return r.inCollision }
+// func (r *Rect) SetInCollision(c bool) { r.inCollision = c }
+
+// Returns a Rect instance with a fixec size of 50x50
+func NewFixedSizeRect(x, y float64) *Rect {
+	return &Rect{x, y, 50, 50}
+}
+
 type Game struct {
 	// Indicates which collision mode we're in
 	mode GameMode
 
-	// Used in all modes
-	target       Rect
-	cursorVector vector.Vec2
-	isColliding  bool
+	// User in all modes
+	cursorVector  vector.Vec2
+	terrain       []*Rect
+	collisionData map[*Rect]CollisionData
 
-	// Used in ray mode
-	rayOrigin        vector.Vec2
-	collisionDetails RayRectCollision
+	// Used in ray/ray2 mode
+	rayOrigin  vector.Vec2
+	ray2Origin vector.Vec2
 
 	// Used in box mode
 	movingRect Rect
 }
 
 func NewGame() *Game {
-	rs := 300.0
+	// Define a load of static rectangles formed into some sort of "complex terrain"
+	statics := make([]*Rect, 0)
+	{
+		offset := 50
+
+		// Top row
+		for x := 200; x < 700; x += offset {
+			statics = append(statics, NewFixedSizeRect(float64(x), 200))
+		}
+
+		// Left column
+		for y := 250; y < 700; y += offset {
+			statics = append(statics, NewFixedSizeRect(200, float64(y)))
+		}
+
+		// Bottom row
+		for x := 250; x < 700; x += offset {
+			statics = append(statics, NewFixedSizeRect(float64(x), 650))
+		}
+
+		// Top part of the right column
+		for y := 250; y < 400; y += offset {
+			statics = append(statics, NewFixedSizeRect(650, float64(y)))
+		}
+
+		// Bottom part of the right column
+		for y := 500; y < 650; y += offset {
+			statics = append(statics, NewFixedSizeRect(650, float64(y)))
+		}
+
+		// Central column
+		for y := 300; y < 500; y += offset {
+			statics = append(statics, NewFixedSizeRect(400, float64(y)))
+		}
+	}
 
 	return &Game{
 		mode:       GameModePoint,
-		target:     Rect{(screenWidth / 2) - (rs / 2), (screenHeight / 2) - (rs / 2), rs, rs},
-		movingRect: Rect{100, 100, 100, 100},
+		terrain:    statics,
+		rayOrigin:  vector.NewVec2(50, 100),
+		ray2Origin: vector.NewVec2(900, 800),
 	}
+}
+
+// type rectPtrCollisionTimePair struct {
+// 	time float64
+// }
+
+type extendedCollisionData struct {
+	rect *Rect
+	data CollisionData
 }
 
 func (g *Game) Update() error {
@@ -87,40 +141,57 @@ func (g *Game) Update() error {
 		case GameModeRay:
 			g.mode = GameModeRay2
 		case GameModeRay2:
-			g.mode = GameModeBox
-		case GameModeBox:
+			g.mode = GameModeRect
+		case GameModeRect:
 			g.mode = GameModePoint
 		}
 	}
 
-	// Re-set the game's cursor vector
+	// Reset the game's cursor vector
 	{
 		cx, cy := ebiten.CursorPosition()
 		g.cursorVector = vector.NewVec2(float64(cx), float64(cy))
 	}
 
-	// Do whatever setup is required for the current mode
-	switch g.mode {
-	case GameModePoint:
-		g.isColliding = PointInAABB(g.cursorVector, g.target)
-	case GameModeRay:
-		g.rayOrigin = vector.NewVec2(g.target.X()-200, g.target.Y()-200)
-	case GameModeRay2:
-		g.rayOrigin = vector.NewVec2(
-			g.target.X()+g.target.Width()+200,
-			g.target.Y()+g.target.Height()+200,
-		)
-	}
+	// Reset our knowledge of what's colliding
+	g.collisionData = make(map[*Rect]CollisionData)
 
 	// Perform the current mode's collision test
 	switch g.mode {
 	case GameModePoint:
-		g.isColliding = PointInAABB(g.cursorVector, g.target)
+		for _, r := range g.terrain {
+			// We have to mis-use the g.collisionData map a little bit here
+			// Because there's no data other than "yes/no" for point/AABB
+			// collision, we'll just use the presence of a key as an indicator
+			// of collision - the values will just be "default" structs
+			if PointInAABB(g.cursorVector, r) {
+				g.collisionData[r] = CollisionData{}
+			}
+		}
+
 	case GameModeRay, GameModeRay2:
-		direction := vector.Vec2(g.cursorVector.Minus(g.rayOrigin))
-		g.isColliding, g.collisionDetails = RayVsRect(g.rayOrigin, direction, g.target)
-	case GameModeBox:
-		// Determine how the box should move this tick
+		// Pick an origin based on which of the two ray modes we're in
+		var ro vector.Vec2
+		if g.mode == GameModeRay {
+			ro = g.rayOrigin
+		} else {
+			ro = g.ray2Origin
+		}
+
+		// Determine the ray's direction
+		rd := vector.Vec2(g.cursorVector.Minus(ro))
+
+		// Determine collisions
+		for _, r := range g.terrain {
+			if colliding, data := RayVsRect(ro, rd, r); colliding {
+				g.collisionData[r] = data
+			}
+		}
+
+	case GameModeRect:
+		// Determine how the game's movingRect would __like__ to move this tick
+		// We consider this a candidate because it will be refined as we resolve
+		// any potential collisions the origin movement would cause
 		mv := vector.NewVec2(0, 0)
 		if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 			lerpSpeed := 0.05
@@ -128,92 +199,155 @@ func (g *Game) Update() error {
 			mv.SetY((g.cursorVector.Y() - (g.movingRect.Height() / 2) - g.movingRect.Y()) * lerpSpeed)
 		}
 
-		g.isColliding, g.collisionDetails = MovingRectVsRect(g.movingRect, mv, g.target)
+		// Determine the time to collision for all possible collisions
+		// N.B., in a real application, the number of tests here should be
+		// reduced with some sort of broad-phase collision testing to prevent
+		// unnecessary testing of impossible collisions
+		collisions := make([]extendedCollisionData, 0)
+		for _, r := range g.terrain {
+			colliding, data := MovingRectVsRect(g.movingRect, mv, r)
+			if !colliding {
+				continue
+			}
 
-		if g.isColliding {
-			log.Println(g.collisionDetails)
-
+			collisions = append(
+				collisions,
+				extendedCollisionData{r, data},
+			)
 		}
 
-		overlap := 1 - g.collisionDetails.Time
+		// We now need to sort the list of collisions we collected by the
+		// time to collision, such that they're processed in the order of
+		// "collides soonest" to "collides latest". This prevents weird
+		// issues like moving AABBs getting stuck on corners, etc.
+		sort.Slice(collisions, func(i, j int) bool {
+			return collisions[i].data.Time < collisions[j].data.Time
+		})
 
-		// mv.SetX(mv.X() * g.collisionDetails.Normal.X() )
+		for _, ecd := range collisions {
+			overlap := 1 - ecd.data.Time
 
-		cmv := mv.Add(
-			vector.NewVec2(
-				math.Abs(mv.X())*g.collisionDetails.Normal.X()*overlap,
-				math.Abs(mv.Y())*g.collisionDetails.Normal.Y()*overlap,
-			),
-		)
+			mv = mv.Add(
+				vector.NewVec2(
+					math.Abs(mv.X())*ecd.data.Normal.X()*overlap,
+					math.Abs(mv.Y())*ecd.data.Normal.Y()*overlap,
+				),
+			)
+		}
 
-		g.movingRect.x += cmv.X()
-		g.movingRect.y += cmv.Y()
+		// collisionTimes := make
+
+		// g.isColliding, g.collisionDetails = MovingRectVsRect(g.movingRect, mv, g.target)
+
+		// if g.isColliding {
+		// 	log.Println(g.collisionDetails)
+
+		// }
+
+		//
+
+		// // mv.SetX(mv.X() * g.collisionDetails.Normal.X() )
+
+		// cmv := mv.Add(
+		// 	vector.NewVec2(
+		// 		math.Abs(mv.X())*g.collisionDetails.Normal.X()*overlap,
+		// 		math.Abs(mv.Y())*g.collisionDetails.Normal.Y()*overlap,
+		// 	),
+		// )
+
+		g.movingRect.x += mv.X()
+		g.movingRect.y += mv.Y()
 	}
 
 	return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	// If we're in box mode, visualise the expanded rectangle we use for collision
-	if g.mode == GameModeBox {
-		ebitenutil.DrawRect(
-			screen,
-			g.target.X()-(g.movingRect.Width()/2),
-			g.target.Y()-(g.movingRect.Height()/2),
-			g.target.Width()+g.movingRect.Width(),
-			g.target.Height()+g.movingRect.Height(),
-			colorPurple,
-		)
+	// In all modes, draw all of the static rects
+	{
+		for _, r := range g.terrain {
+			var chosenColor color.RGBA
+
+			if _, ok := g.collisionData[r]; ok {
+				chosenColor = colorGreen
+			} else {
+				chosenColor = colorRed
+			}
+
+			ebitenutil.DrawRect(
+				screen,
+				r.X(),
+				r.Y(),
+				r.Width(),
+				r.Height(),
+				chosenColor,
+			)
+		}
 	}
 
-	// Draw the target rect - in all modes
-	{
-		var chosenColor color.RGBA
-		if g.isColliding {
-			chosenColor = colorRed
+	// If we're in either ray mode, visualise the ray as well as the normal
+	// vectors of any faces in collision with the ray
+	if g.mode == GameModeRay || g.mode == GameModeRay2 {
+		var ro vector.Vec2
+		if g.mode == GameModeRay {
+			ro = g.rayOrigin
 		} else {
-			chosenColor = colorGreen
+			ro = g.ray2Origin
 		}
 
-		ebitenutil.DrawRect(
-			screen,
-			g.target.X(),
-			g.target.Y(),
-			g.target.Width(),
-			g.target.Height(),
-			chosenColor,
-		)
-	}
-
-	// If we're in ray mode, draw the ray and collision details
-	if g.mode == GameModeRay || g.mode == GameModeRay2 {
 		ebitenutil.DrawLine(
 			screen,
-			g.rayOrigin.X(), g.rayOrigin.Y(), g.cursorVector.X(), g.cursorVector.Y(),
+			ro.X(), ro.Y(),
+			g.cursorVector.X(), g.cursorVector.Y(),
 			colorBlue,
 		)
 
-		if g.isColliding {
+		normalLength := 30.0
+		for _, data := range g.collisionData {
 			ebitenutil.DrawLine(
 				screen,
-				g.collisionDetails.Contact.X(),
-				g.collisionDetails.Contact.Y(),
-				g.collisionDetails.Contact.X()+g.collisionDetails.Normal.X()*50,
-				g.collisionDetails.Contact.Y()+g.collisionDetails.Normal.Y()*50,
-				colorYellow,
-			)
-
-			ebitenutil.DebugPrintAt(
-				screen,
-				fmt.Sprintf("%f", g.collisionDetails.Time),
-				int(g.collisionDetails.Contact.X()),
-				int(g.collisionDetails.Contact.Y()),
+				data.Contact.X(),
+				data.Contact.Y(),
+				data.Contact.X()+data.Normal.X()*normalLength,
+				data.Contact.Y()+data.Normal.Y()*normalLength,
+				colorPurple,
 			)
 		}
 	}
 
-	// If we're in box mode, visualise the user-controlled moving rect
-	if g.mode == GameModeBox {
+	// // If we're in box mode, visualise the expanded rectangle we use for collision
+	// if g.mode == GameModeBox {
+	// 	ebitenutil.DrawRect(
+	// 		screen,
+	// 		g.target.X()-(g.movingRect.Width()/2),
+	// 		g.target.Y()-(g.movingRect.Height()/2),
+	// 		g.target.Width()+g.movingRect.Width(),
+	// 		g.target.Height()+g.movingRect.Height(),
+	// 		colorPurple,
+	// 	)
+	// }
+
+	// 	if g.isColliding {
+	// 		ebitenutil.DrawLine(
+	// 			screen,
+	// 			g.collisionDetails.Contact.X(),
+	// 			g.collisionDetails.Contact.Y(),
+	// 			g.collisionDetails.Contact.X()+g.collisionDetails.Normal.X()*50,
+	// 			g.collisionDetails.Contact.Y()+g.collisionDetails.Normal.Y()*50,
+	// 			colorYellow,
+	// 		)
+
+	// 		ebitenutil.DebugPrintAt(
+	// 			screen,
+	// 			fmt.Sprintf("%f", g.collisionDetails.Time),
+	// 			int(g.collisionDetails.Contact.X()),
+	// 			int(g.collisionDetails.Contact.Y()),
+	// 		)
+	// 	}
+	// }
+
+	// If we're in rect mode, visualise the user-controlled moving rect
+	if g.mode == GameModeRect {
 		ebitenutil.DrawRect(
 			screen,
 			g.movingRect.x, g.movingRect.y,
@@ -226,7 +360,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	{
 		ebitenutil.DebugPrint(
 			screen,
-			fmt.Sprintf("mode: %s, colliding: %t", g.mode, g.isColliding),
+			fmt.Sprintf("mode: %s, colliding: %t", g.mode, len(g.collisionData) != 0),
 		)
 	}
 }
