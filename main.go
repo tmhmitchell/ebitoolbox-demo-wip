@@ -228,15 +228,27 @@ func (g *Game) Update() error {
 		})
 
 		for _, ecd := range collisions {
-			overlap := 1 - ecd.data.Time
+			colliding, data := MovingRectVsRect(g.movingRect, mv, ecd.rect)
+			if !colliding {
+				continue
+			}
+
+			overlap := 1 - data.Time
 
 			mv = mv.Add(
 				vector.NewVec2(
-					math.Abs(mv.X())*ecd.data.Normal.X()*overlap,
-					math.Abs(mv.Y())*ecd.data.Normal.Y()*overlap,
+					math.Abs(mv.X())*data.Normal.X()*overlap,
+					math.Abs(mv.Y())*data.Normal.Y()*overlap,
 				),
 			)
 		}
+
+		// Potential alternatives?
+		// For all potentially colliding items:
+		// 1. Determine closest (minimum time until collision)
+		// 2. Resolve collision (reduce mv)
+		// 3. Remove item from pool
+		// Repeat until no items are potentially colliding
 
 		g.movingRect.x += mv.X()
 		g.movingRect.y += mv.Y()
