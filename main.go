@@ -190,58 +190,159 @@ func (g *Game) Update() error {
 		}
 
 	case GameModeRect:
+		// We only move when the LMB is pressed
+		if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+			break
+		}
+
 		// Determine how the game's movingRect would __like__ to move this tick
 		// We consider this a candidate because it will be refined as we resolve
 		// any potential collisions the origin movement would cause
-		mv := vector.NewVec2(0, 0)
-		if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		var mv vector.Vec2
+		{
 			lerpSpeed := 0.05
 			mv.SetX((g.cursorVector.X() - (g.movingRect.Width() / 2) - g.movingRect.X()) * lerpSpeed)
 			mv.SetY((g.cursorVector.Y() - (g.movingRect.Height() / 2) - g.movingRect.Y()) * lerpSpeed)
 		}
 
-		// Determine the time to collision for all possible collisions
-		// N.B., in a real application, the number of tests here should be
-		// reduced with some sort of broad-phase collision testing to prevent
-		// unnecessary testing of impossible collisions
-		collisions := make([]extendedCollisionData, 0)
-		for _, r := range g.terrain {
-			colliding, data := MovingRectVsRect(g.movingRect, mv, r)
-			if !colliding {
-				continue
+		// Determine all of the tiles moving by mv would bring us into collision with
+
+		for {
+			collisions := make([]extendedCollisionData, 0)
+			for _, r := range g.terrain {
+				colliding, data := MovingRectVsRect(g.movingRect, mv, r)
+				if !colliding {
+					continue
+				}
+
+				g.collisionData[r] = data
+
+				collisions = append(collisions, extendedCollisionData{r, data})
 			}
 
-			g.collisionData[r] = data
+			if len(collisions) == 0 {
+				break
+			}
 
-			collisions = append(
-				collisions,
-				extendedCollisionData{r, data},
-			)
+			sort.Slice(collisions, func(i, j int) bool {
+				return collisions[i].data.Time < collisions[j].data.Time
+			})
+
+			for _, ecd := range collisions {
+				overlap := 1 - ecd.data.Time
+
+				mv = mv.Add(
+					vector.NewVec2(
+						math.Abs(mv.X())*ecd.data.Normal.X()*overlap,
+						math.Abs(mv.Y())*ecd.data.Normal.Y()*overlap,
+					),
+				)
+			}
 		}
 
 		// We now need to sort the list of collisions we collected by the
 		// time to collision, such that they're processed in the order of
 		// "collides soonest" to "collides latest". This prevents weird
 		// issues like moving AABBs getting stuck on corners, etc.
-		sort.Slice(collisions, func(i, j int) bool {
-			return collisions[i].data.Time < collisions[j].data.Time
-		})
+		// sort.Slice(collisions, func(i, j int) bool {
+		// 	return collisions[i].data.Time < collisions[j].data.Time
+		// })
 
-		for _, ecd := range collisions {
-			colliding, data := MovingRectVsRect(g.movingRect, mv, ecd.rect)
-			if !colliding {
-				continue
-			}
+		// for _, ecd := range collisions {
+		// 	overlap := 1 - ecd.data.Time
 
-			overlap := 1 - data.Time
+		// 	mv = mv.Add(
+		// 		vector.NewVec2(
+		// 			math.Abs(mv.X())*ecd.data.Normal.X()*overlap,
+		// 			math.Abs(mv.Y())*ecd.data.Normal.Y()*overlap,
+		// 		),
+		// 	)
+		// }
 
-			mv = mv.Add(
-				vector.NewVec2(
-					math.Abs(mv.X())*data.Normal.X()*overlap,
-					math.Abs(mv.Y())*data.Normal.Y()*overlap,
-				),
-			)
-		}
+		// Determine the time to collision for all possible collisions
+		// N.B., in a real application, the number of tests here should be
+		// reduced with some sort of broad-phase collision testing to prevent
+		// unnecessary testing of impossible collisions
+		// collisions := make([]extendedCollisionData, 0)
+		// for _, r := range g.terrain {
+		// 	colliding, data := MovingRectVsRect(g.movingRect, mv, r)
+		// 	if !colliding {
+		// 		continue
+		// 	}
+
+		// 	g.collisionData[r] = data
+
+		// 	collisions = append(
+		// 		collisions,
+		// 		extendedCollisionData{r, data},
+		// 	)
+		// }
+
+		// for len(collisions) != 0 {
+		// 	// We now need to sort the list of collisions we collected by the
+		// 	// time to collision, such that they're processed in the order of
+		// 	// "collides soonest" to "collides latest". This prevents weird
+		// 	// issues like moving AABBs getting stuck on corners, etc.
+		// 	sort.Slice(collisions, func(i, j int) bool {
+		// 		return collisions[i].data.Time < collisions[j].data.Time
+		// 	})
+
+		// 	overlap := 1 - collisions[0].data.Time
+
+		// 	mv = mv.Add(
+		// 		vector.NewVec2(
+		// 			math.Abs(mv.X())*collisions[0].data.Normal.X()*overlap,
+		// 			math.Abs(mv.Y())*collisions[0].data.Normal.Y()*overlap,
+		// 		),
+		// 	)
+
+		// 	// Remove head
+		// 	collisions = collisions[1:]
+
+		// 	// Re-test collision times
+		// 	for _, r := range g.terrain {
+		// 		colliding, data := MovingRectVsRect(g.movingRect, mv, r)
+		// 		if !colliding {
+		// 			continue
+		// 		}
+
+		// 		g.collisionData[r] = data
+
+		// 		collisions = append(
+		// 			collisions,
+		// 			extendedCollisionData{r, data},
+		// 		)
+		// 	}
+
+		// }
+
+		// We now need to sort the list of collisions we collected by the
+		// time to collision, such that they're processed in the order of
+		// "collides soonest" to "collides latest". This prevents weird
+		// issues like moving AABBs getting stuck on corners, etc.
+		// sort.Slice(collisions[:], func(i, j int) bool {
+		// 	return collisions[i].data.Time < collisions[j].data.Time
+		// })
+
+		// if len(collisions) > 1 {
+		// 	fmt.Println(collisions)
+		// }
+
+		// for _, ecd := range collisions {
+		// 	colliding, data := MovingRectVsRect(g.movingRect, mv, ecd.rect)
+		// 	if !colliding {
+		// 		continue
+		// 	}
+
+		// 	overlap := 1 - data.Time
+
+		// 	mv = mv.Add(
+		// 		vector.NewVec2(
+		// 			math.Abs(mv.X())*data.Normal.X()*overlap,
+		// 			math.Abs(mv.Y())*data.Normal.Y()*overlap,
+		// 		),
+		// 	)
+		// }
 
 		// Potential alternatives?
 		// For all potentially colliding items:
@@ -317,6 +418,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			g.movingRect.X(), g.movingRect.Y(),
 			g.movingRect.Width(), g.movingRect.Height(),
 			colorGreen,
+		)
+
+		ebitenutil.DrawLine(
+			screen,
+			g.movingRect.X()+g.movingRect.Width()/2,
+			g.movingRect.Y()+g.movingRect.Height()/2,
+			g.cursorVector.X(), g.cursorVector.Y(),
+			colorPurple,
 		)
 	}
 
