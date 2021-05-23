@@ -224,16 +224,9 @@ func (g *Game) Update() error {
 
 		c := collisions[0]
 
+		sdp := (cmv.X() * c.Normal.Y()) + (cmv.Y()*c.Normal.X())*(1.0-c.Time)
+
 		mv := vector.NewVec2(
-			cmv.X()*c.Time,
-			cmv.Y()*c.Time,
-		)
-
-		r := 1.0 - c.Time
-
-		sdp := (cmv.X() * c.Normal.Y()) + (cmv.Y()*c.Normal.X())*r
-
-		mv = vector.NewVec2(
 			(cmv.X()*c.Time)+(sdp*c.Normal.Y()),
 			(cmv.Y()*c.Time)+(sdp*c.Normal.X()),
 		)
