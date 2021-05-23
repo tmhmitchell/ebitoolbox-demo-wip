@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image/color"
 	"log"
-	"math"
 	"sort"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -123,11 +122,6 @@ func NewGame() *Game {
 // 	time float64
 // }
 
-type extendedCollisionData struct {
-	rect *Rect
-	data CollisionData
-}
-
 func (g *Game) Update() error {
 	// Close the game when escape is pressed
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
@@ -198,158 +192,51 @@ func (g *Game) Update() error {
 		// Determine how the game's movingRect would __like__ to move this tick
 		// We consider this a candidate because it will be refined as we resolve
 		// any potential collisions the origin movement would cause
-		var mv vector.Vec2
+		var cmv vector.Vec2
 		{
 			lerpSpeed := 0.05
-			mv.SetX((g.cursorVector.X() - (g.movingRect.Width() / 2) - g.movingRect.X()) * lerpSpeed)
-			mv.SetY((g.cursorVector.Y() - (g.movingRect.Height() / 2) - g.movingRect.Y()) * lerpSpeed)
+			cmv.SetX((g.cursorVector.X() - (g.movingRect.Width() / 2) - g.movingRect.X()) * lerpSpeed)
+			cmv.SetY((g.cursorVector.Y() - (g.movingRect.Height() / 2) - g.movingRect.Y()) * lerpSpeed)
 		}
 
 		// Determine all of the tiles moving by mv would bring us into collision with
 
-		for {
-			collisions := make([]extendedCollisionData, 0)
-			for _, r := range g.terrain {
-				colliding, data := MovingRectVsRect(g.movingRect, mv, r)
-				if !colliding {
-					continue
-				}
-
-				g.collisionData[r] = data
-
-				collisions = append(collisions, extendedCollisionData{r, data})
+		collisions := make([]CollisionData, 0)
+		for _, r := range g.terrain {
+			colliding, data := MovingRectVsRect(g.movingRect, cmv, r)
+			if !colliding {
+				continue
 			}
 
-			if len(collisions) == 0 {
-				break
-			}
-
-			sort.Slice(collisions, func(i, j int) bool {
-				return collisions[i].data.Time < collisions[j].data.Time
-			})
-
-			for _, ecd := range collisions {
-				overlap := 1 - ecd.data.Time
-
-				mv = mv.Add(
-					vector.NewVec2(
-						math.Abs(mv.X())*ecd.data.Normal.X()*overlap,
-						math.Abs(mv.Y())*ecd.data.Normal.Y()*overlap,
-					),
-				)
-			}
+			g.collisionData[r] = data
+			collisions = append(collisions, data)
 		}
 
-		// We now need to sort the list of collisions we collected by the
-		// time to collision, such that they're processed in the order of
-		// "collides soonest" to "collides latest". This prevents weird
-		// issues like moving AABBs getting stuck on corners, etc.
-		// sort.Slice(collisions, func(i, j int) bool {
-		// 	return collisions[i].data.Time < collisions[j].data.Time
-		// })
+		sort.Slice(collisions, func(i, j int) bool {
+			return collisions[i].Time < collisions[j].Time
+		})
 
-		// for _, ecd := range collisions {
-		// 	overlap := 1 - ecd.data.Time
+		if len(collisions) == 0 {
+			g.movingRect.x += cmv.X()
+			g.movingRect.y += cmv.Y()
+			break
+		}
 
-		// 	mv = mv.Add(
-		// 		vector.NewVec2(
-		// 			math.Abs(mv.X())*ecd.data.Normal.X()*overlap,
-		// 			math.Abs(mv.Y())*ecd.data.Normal.Y()*overlap,
-		// 		),
-		// 	)
-		// }
+		c := collisions[0]
 
-		// Determine the time to collision for all possible collisions
-		// N.B., in a real application, the number of tests here should be
-		// reduced with some sort of broad-phase collision testing to prevent
-		// unnecessary testing of impossible collisions
-		// collisions := make([]extendedCollisionData, 0)
-		// for _, r := range g.terrain {
-		// 	colliding, data := MovingRectVsRect(g.movingRect, mv, r)
-		// 	if !colliding {
-		// 		continue
-		// 	}
+		mv := vector.NewVec2(
+			cmv.X()*c.Time,
+			cmv.Y()*c.Time,
+		)
 
-		// 	g.collisionData[r] = data
+		r := 1.0 - c.Time
 
-		// 	collisions = append(
-		// 		collisions,
-		// 		extendedCollisionData{r, data},
-		// 	)
-		// }
+		sdp := (cmv.X() * c.Normal.Y()) + (cmv.Y()*c.Normal.X())*r
 
-		// for len(collisions) != 0 {
-		// 	// We now need to sort the list of collisions we collected by the
-		// 	// time to collision, such that they're processed in the order of
-		// 	// "collides soonest" to "collides latest". This prevents weird
-		// 	// issues like moving AABBs getting stuck on corners, etc.
-		// 	sort.Slice(collisions, func(i, j int) bool {
-		// 		return collisions[i].data.Time < collisions[j].data.Time
-		// 	})
-
-		// 	overlap := 1 - collisions[0].data.Time
-
-		// 	mv = mv.Add(
-		// 		vector.NewVec2(
-		// 			math.Abs(mv.X())*collisions[0].data.Normal.X()*overlap,
-		// 			math.Abs(mv.Y())*collisions[0].data.Normal.Y()*overlap,
-		// 		),
-		// 	)
-
-		// 	// Remove head
-		// 	collisions = collisions[1:]
-
-		// 	// Re-test collision times
-		// 	for _, r := range g.terrain {
-		// 		colliding, data := MovingRectVsRect(g.movingRect, mv, r)
-		// 		if !colliding {
-		// 			continue
-		// 		}
-
-		// 		g.collisionData[r] = data
-
-		// 		collisions = append(
-		// 			collisions,
-		// 			extendedCollisionData{r, data},
-		// 		)
-		// 	}
-
-		// }
-
-		// We now need to sort the list of collisions we collected by the
-		// time to collision, such that they're processed in the order of
-		// "collides soonest" to "collides latest". This prevents weird
-		// issues like moving AABBs getting stuck on corners, etc.
-		// sort.Slice(collisions[:], func(i, j int) bool {
-		// 	return collisions[i].data.Time < collisions[j].data.Time
-		// })
-
-		// if len(collisions) > 1 {
-		// 	fmt.Println(collisions)
-		// }
-
-		// for _, ecd := range collisions {
-		// 	colliding, data := MovingRectVsRect(g.movingRect, mv, ecd.rect)
-		// 	if !colliding {
-		// 		continue
-		// 	}
-
-		// 	overlap := 1 - data.Time
-
-		// 	mv = mv.Add(
-		// 		vector.NewVec2(
-		// 			math.Abs(mv.X())*data.Normal.X()*overlap,
-		// 			math.Abs(mv.Y())*data.Normal.Y()*overlap,
-		// 		),
-		// 	)
-		// }
-
-		// Potential alternatives?
-		// For all potentially colliding items:
-		// 1. Determine closest (minimum time until collision)
-		// 2. Resolve collision (reduce mv)
-		// 3. Remove item from pool
-		// Repeat until no items are potentially colliding
+		mv = vector.NewVec2(
+			(cmv.X()*c.Time)+(sdp*c.Normal.Y()),
+			(cmv.Y()*c.Time)+(sdp*c.Normal.X()),
+		)
 
 		g.movingRect.x += mv.X()
 		g.movingRect.y += mv.Y()
