@@ -26,8 +26,10 @@ type CollisionData struct {
 }
 
 func PointInAABB(point vector.Vec2, box AABB) bool {
-	return box.X() < point.X() && box.X()+box.Width() >= point.X() &&
-		box.Y() < point.Y() && box.Y()+box.Height() >= point.Y()
+	return box.X() < point.X() &&
+		box.X()+box.Width() >= point.X() &&
+		box.Y() < point.Y() &&
+		box.Y()+box.Height() >= point.Y()
 }
 
 // determineNearAndFar is a helper function for determining if a ray
@@ -101,9 +103,9 @@ func RayVsRect(origin, direction vector.Vec2, target AABB) (bool, CollisionData)
 		} else {
 			log.Println("ebitoolbox: RayVsRect: returning a (0, 0 normal vector!")
 		}
-
 	}
 
+	// XXX: Under some circumstances, we can end up n == -0
 	return true, CollisionData{
 		Contact: origin.Add(vector.NewVec2(direction.X()*n, direction.Y()*n)),
 		Normal:  normal,

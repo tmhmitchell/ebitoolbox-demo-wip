@@ -212,27 +212,27 @@ func (g *Game) Update() error {
 			collisions = append(collisions, data)
 		}
 
-		sort.Slice(collisions, func(i, j int) bool {
-			return collisions[i].Time < collisions[j].Time
-		})
-
 		if len(collisions) == 0 {
 			g.movingRect.x += cmv.X()
 			g.movingRect.y += cmv.Y()
 			break
 		}
 
-		c := collisions[0]
+		sort.Slice(collisions, func(i, j int) bool {
+			return collisions[i].Time < collisions[j].Time
+		})
 
-		sdp := (cmv.X() * c.Normal.Y()) + (cmv.Y()*c.Normal.X())*(1.0-c.Time)
+		for _, c := range collisions {
+			sdp := (cmv.X() * c.Normal.Y()) + (cmv.Y()*c.Normal.X())*(1.0-c.Time)
 
-		mv := vector.NewVec2(
-			(cmv.X()*c.Time)+(sdp*c.Normal.Y()),
-			(cmv.Y()*c.Time)+(sdp*c.Normal.X()),
-		)
+			cmv = vector.NewVec2(
+				(cmv.X()*c.Time)+(sdp*c.Normal.Y()),
+				(cmv.Y()*c.Time)+(sdp*c.Normal.X()),
+			)
+		}
 
-		g.movingRect.x += mv.X()
-		g.movingRect.y += mv.Y()
+		g.movingRect.x += cmv.X()
+		g.movingRect.y += cmv.Y()
 	}
 
 	return nil
@@ -291,8 +291,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	// If we're in rect mode, visualise the user-controlled moving rect
 	if g.mode == GameModeRect {
+		// Visualise the user-controlled moving rect
 		ebitenutil.DrawRect(
 			screen,
 			g.movingRect.X(), g.movingRect.Y(),
@@ -300,6 +300,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			colorGreen,
 		)
 
+		// Visualise the rest's movemnent vector
 		ebitenutil.DrawLine(
 			screen,
 			g.movingRect.X()+g.movingRect.Width()/2,
@@ -307,15 +308,30 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			g.cursorVector.X(), g.cursorVector.Y(),
 			colorPurple,
 		)
+
+		// Visual collision normals
+		// We have to fiddle about with the origins a bit because of how
+		// contacts are recorded in AABBvsAABB collision
+		normalLength := 30.0
+		for _, data := range g.collisionData {
+			acx := data.Contact.X() - ((g.movingRect.Width() / 2) * data.Normal.X())
+			acy := data.Contact.Y() - ((g.movingRect.Height() / 2) * data.Normal.Y())
+
+			ebitenutil.DrawLine(
+				screen,
+				acx, acy,
+				acx+data.Normal.X()*normalLength,
+				acy+data.Normal.Y()*normalLength,
+				colorPurple,
+			)
+		}
 	}
 
 	// Draw debug text
-	{
-		ebitenutil.DebugPrint(
-			screen,
-			fmt.Sprintf("mode: %s, colliding: %t", g.mode, len(g.collisionData) != 0),
-		)
-	}
+	ebitenutil.DebugPrint(
+		screen,
+		fmt.Sprintf("mode: %s, colliding: %t", g.mode, len(g.collisionData) != 0),
+	)
 }
 
 func (g *Game) Layout(_, _ int) (int, int) {
